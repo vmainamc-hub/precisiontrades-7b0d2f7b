@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ALL_CELL_IDS, parseCellId } from "./constants";
 import { ObservationEngine } from "./observationEngine";
-import { emptyEvidenceInput } from "./observation/engineAdapter";
+import { emptyEvidenceInput } from "./engineAdapter";
 
 describe("PrecisionSentinel — permanent identity propagation", () => {
   it("every one of the 90 cells keeps its concrete identity through the canonical ObservationEngine path", () => {
