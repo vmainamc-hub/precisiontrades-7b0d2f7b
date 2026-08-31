@@ -132,11 +132,11 @@ function ApexPage() {
   // a qualified-only subset, an alerted candidate or any other selection. When it
   // is not qualified it is displayed with its blockers.
   const bestOf90 = apex.scan?.bestOf90 ?? null;
-  const best =
-    bestOf90?.candidate ??
-    (apex.scan?.finalRank && apex.scan.finalRank.length > 0 ? apex.scan.finalRank[0] : null) ??
-    apex.scan?.best ??
-    (apex.ranked.length > 0 ? apex.ranked[0] : null);
+  // Once a scan exists, the displayed candidate is STRICTLY finalRank[0] of that
+  // scan. The live ranked field is only used before the first scan.
+  const best = apex.scan
+    ? (apex.scan.finalRank?.[0] ?? bestOf90?.candidate ?? apex.scan.best ?? null)
+    : (apex.ranked[0] ?? null);
 
   // AUTOMATIC VISUAL FOCUS — sound → look at screen → see the exact signal.
   const latestAlertId = alerts.latest?.id ?? null;
