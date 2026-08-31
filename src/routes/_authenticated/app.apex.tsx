@@ -16,6 +16,7 @@ import {
 
 import { useApexSentinel } from "@/hooks/useApexSentinel";
 import { DEFAULT_SCAN_OPTIONS, whyNotRunnerUp, type ScanOptions } from "@/lib/apex/scan";
+import { selectScanCandidate } from "@/lib/apex/scan-presentation";
 import { SimulatorPanel } from "@/components/apex/SimulatorPanel";
 import { PanelBoundary } from "@/components/apex/PanelBoundary";
 import { SimulatorCommandCenter } from "@/components/apex/SimulatorCommandCenter";
