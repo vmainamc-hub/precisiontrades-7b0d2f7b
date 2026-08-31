@@ -107,7 +107,7 @@ describe("Scan winner invariant — displayed candidate === finalRank[0]", () =>
 
     const displayed = selectScanCandidate(scan, [cellB, cellA]);
     expect(displayed!.symbol).toBe("CELL_A");
-    expect(displayed!.identityConformance?.state).toBe("STRONG");
+    expect((displayed as unknown as { identityConformance?: { state?: string } }).identityConformance?.state).toBe("STRONG");
   });
 
   it("uses the live ranked leader only before the first scan", () => {
