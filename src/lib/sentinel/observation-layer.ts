@@ -364,10 +364,15 @@ export interface ObservationDossier {
   distribution: {
     stability: "CALM" | "STABLE" | "SHIFTING" | "ANOMALOUS";
     parityBias: "EVEN_DOMINANT" | "ODD_DOMINANT" | "BALANCED";
-    greenDigit: Digit;
-    secondGreenDigit: Digit;
-    redDigit: Digit;
-    secondRedDigit: Digit;
+    // IDENTITY INTEGRITY: null (never a fabricated digit) when this
+    // candidate has no real canonicalState evidence yet. A permanent cell
+    // identity has parity/group rules, not a single hardcoded digit, so
+    // there is no legitimate cell-specific value to substitute either —
+    // see observation-layer.ts buildDossier() for where this is populated.
+    greenDigit: Digit | null;
+    secondGreenDigit: Digit | null;
+    redDigit: Digit | null;
+    secondRedDigit: Digit | null;
     edgeDigitStatus: string;
   };
   regime: MarketRegime;
@@ -809,29 +814,68 @@ export class ObservationLayerEngine {
     const pressureInterpretation = this.evaluateMultiWindowPressure(cand, selectedEntryDigit);
 
     // 6. Continuous Regime Observation Layer
-    const defaultStats: any = {};
-    for (let d = 0; d <= 9; d++) {
-      defaultStats[d] = {
-        digit: d as Digit,
-        count: 10,
-        percentage: 10,
-        deviation: 0,
-        velocity: 0,
-        acceleration: 0,
-        pressure: 50,
-        recentCount20: 2,
-        recentCount50: 5,
-        recentCount100: 10,
-        consecutiveCount: 0,
-        ticksSinceLast: 0,
-        isGreen: d === 2,
-        isSecondGreen: d === 3,
-        isRed: d === 0,
-        isSecondRed: d === 9,
-        isMostIncreasing: d === 1,
-        isMostDecreasing: d === 8,
-      };
-    }
+    //
+    // IDENTITY INTEGRITY: this candidate's cell has a permanent identity
+    // (cellIdentity.ts) that is completely separate from whatever the LIVE
+    // market is currently doing. When `cand.canonicalState` has not been
+    // populated with real observed evidence yet, we must never invent one by
+    // stamping in generic/canonical digit assignments (GREEN=2, RED=0,
+    // MOST INCREASING=1, MOST DECREASING=8, etc.) — that would fabricate live
+    // market evidence and let a cell's permanent identity leak into what is
+    // supposed to be an actual tick-derived observation.
+    //
+    // `INSUFFICIENT_EVIDENCE_CANONICAL_STATE` is therefore built with
+    // `totalTicks: 0`, which continuousRegimeObserver.observe() below
+    // recognises (see continuous-regime.ts, "Check for Insufficient Data")
+    // and turns into an explicit `UNKNOWN_INSUFFICIENT_DATA` regime report —
+    // never a false-positive "compatible" regime read. The `Digit` fields
+    // are structurally required by `CanonicalDigitState` but are never
+    // consulted once `totalTicks < 15` short-circuits the observer; they
+    // must not be treated as observed identity/psychology evidence anywhere
+    // else in the pipeline.
+    const INSUFFICIENT_EVIDENCE_DIGIT_STATS: Record<Digit, any> = (() => {
+      const stats: any = {};
+      for (let d = 0; d <= 9; d++) {
+        stats[d] = {
+          digit: d as Digit,
+          count: 0,
+          percentage: 0,
+          deviation: 0,
+          velocity: 0,
+          acceleration: 0,
+          pressure: 0,
+          recentCount20: 0,
+          recentCount50: 0,
+          recentCount100: 0,
+          consecutiveCount: 0,
+          ticksSinceLast: 0,
+          isGreen: false,
+          isSecondGreen: false,
+          isRed: false,
+          isSecondRed: false,
+          isMostIncreasing: false,
+          isMostDecreasing: false,
+        };
+      }
+      return stats;
+    })();
+
+    const INSUFFICIENT_EVIDENCE_CANONICAL_STATE: CanonicalDigitState = {
+      // Structurally required by CanonicalDigitState; never treated as
+      // observed evidence — totalTicks: 0 forces UNKNOWN_INSUFFICIENT_DATA.
+      greenDigit: 0,
+      secondGreenDigit: 0,
+      redDigit: 0,
+      secondRedDigit: 0,
+      mostIncreasingDigit: 0,
+      mostDecreasingDigit: 0,
+      digitStats: INSUFFICIENT_EVIDENCE_DIGIT_STATS,
+      totalTicks: 0,
+      lastUpdated: Date.now(),
+      entropy: 0,
+      evenPercentage: 0,
+      oddPercentage: 0,
+    };
 
     const regimeObservation =
       (cand as any).regimeObservation ||
@@ -841,20 +885,8 @@ export class ObservationLayerEngine {
         contract,
         direction: contract.startsWith("UNDER") ? "UNDER" : "OVER",
         entryDigit: selectedEntryDigit,
-        canonicalState: (cand as OpportunityCandidate).canonicalState || {
-          greenDigit: 2,
-          secondGreenDigit: 3,
-          redDigit: 0,
-          secondRedDigit: 9,
-          mostIncreasingDigit: 1,
-          mostDecreasingDigit: 8,
-          digitStats: defaultStats,
-          totalTicks: 100,
-          lastUpdated: Date.now(),
-          entropy: 0.95,
-          evenPercentage: 50,
-          oddPercentage: 50,
-        },
+        canonicalState:
+          (cand as OpportunityCandidate).canonicalState || INSUFFICIENT_EVIDENCE_CANONICAL_STATE,
         recentQuoteTicks: (cand as any).recentQuoteTicks || [],
         pressure: pressureInterpretation,
         losingSide: (cand as OpportunityCandidate).losingSide,
@@ -2895,10 +2927,13 @@ export class ObservationLayerEngine {
           ((cand as OpportunityCandidate).canonicalState?.evenPercentage ?? 50) > 55
             ? "EVEN_DOMINANT"
             : "BALANCED",
-        greenDigit: (cand as OpportunityCandidate).canonicalState?.greenDigit ?? 2,
-        secondGreenDigit: (cand as OpportunityCandidate).canonicalState?.secondGreenDigit ?? 3,
-        redDigit: (cand as OpportunityCandidate).canonicalState?.redDigit ?? 0,
-        secondRedDigit: (cand as OpportunityCandidate).canonicalState?.secondRedDigit ?? 9,
+        // IDENTITY INTEGRITY: no generic canonical fallback (2/3/0/9). When
+        // there is no real canonicalState evidence for this candidate yet,
+        // these are UNKNOWN (null), never a fabricated digit assignment.
+        greenDigit: (cand as OpportunityCandidate).canonicalState?.greenDigit ?? null,
+        secondGreenDigit: (cand as OpportunityCandidate).canonicalState?.secondGreenDigit ?? null,
+        redDigit: (cand as OpportunityCandidate).canonicalState?.redDigit ?? null,
+        secondRedDigit: (cand as OpportunityCandidate).canonicalState?.secondRedDigit ?? null,
         edgeDigitStatus:
           hidden.suppressedEdgeDigits.length > 0
             ? `Suppressed (${hidden.suppressedEdgeDigits.join(",")})`

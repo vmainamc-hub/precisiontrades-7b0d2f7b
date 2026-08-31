@@ -963,7 +963,8 @@ export class ObservationCell {
     // (contractPsychology + canonicalDigitState, handed through via
     // psychology.raw). Never recomputed from raw ticks here, and never fed
     // back into scoring/ranking (§35) — this rides alongside the dossier for
-    // audit/explanation only.
+    // audit/explanation and the single confluence/ranking calculation; it is
+    // never a separate ranking or qualification selector.
     const psychRaw = (input.psychology as any)?.raw;
     const identityConformance =
       psychRaw?.digitPsychology && psychRaw?.canonicalState
