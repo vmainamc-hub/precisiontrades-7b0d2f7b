@@ -1,0 +1,193 @@
+// APEX SENTINEL — GRADED EMPIRICAL CONFLUENCE — unit tests for the helper.
+//
+// These test computeConfluenceCore() directly, in isolation, against
+// synthetic evidence shaped like the real Sentinel telemetry it reads.
+// See final-rank-confluence.test.ts for the same behaviour proven through
+// the real buildFinalRank() -> finalRank[0] path.
+
+import { describe, it, expect } from "vitest";
+import { computeConfluenceCore, CONFLUENCE_PSYCHOLOGY_THRESHOLD } from "./confluence";
+
+type AnyCandidate = any;
+
+function pressureReading(overrides: Partial<AnyCandidate> = {}): AnyCandidate {
+  return {
+    measurable: true,
+    ratePp: 0,
+    persistence: 0.5,
+    monotonicUp: false,
+    monotonicDown: false,
+    agreement: "2/4",
+    direction: "NEUTRAL",
+    movement: "STABLE",
+    ...overrides,
+  };
+}
+
+/** A fully-formed candidate for a chosen point along the empirical pattern. */
+function candidate(opts: {
+  psychologyScore?: number | null;
+  winPressure?: AnyCandidate | null;
+  losePressure?: AnyCandidate | null;
+  agreement?: string;
+  dangerTotal?: number | null;
+  dangerHardBlocked?: boolean;
+}): AnyCandidate {
+  return {
+    agreement: opts.agreement,
+    digitPsychology:
+      opts.psychologyScore == null
+        ? undefined
+        : { score: opts.psychologyScore, verdict: "SUPPORT" },
+    dangerComposition:
+      opts.dangerTotal == null
+        ? undefined
+        : { total: opts.dangerTotal, level: "LOW", isHardBlocked: Boolean(opts.dangerHardBlocked) },
+    dossier:
+      opts.winPressure === undefined && opts.losePressure === undefined
+        ? undefined
+        : {
+            pressure: {
+              raw: {
+                winPressure: opts.winPressure ?? null,
+                losePressure: opts.losePressure ?? null,
+              },
+            },
+          },
+  };
+}
+
+describe("computeConfluenceCore", () => {
+  it("TEST 1 — maximum confluence: strong psychology + full pressure alignment + engine SUPPORT + low danger", () => {
+    const c = candidate({
+      psychologyScore: 80,
+      winPressure: pressureReading({ ratePp: 3, persistence: 1, monotonicUp: true, agreement: "4/4", direction: "STRONGLY_INCREASING", movement: "TAKING OVER" }),
+      losePressure: pressureReading({ ratePp: -3, persistence: 1, monotonicDown: true, direction: "STRONGLY_DECREASING", movement: "LOSING GROUND" }),
+      agreement: "SUPPORT",
+      dangerTotal: 8,
+    });
+
+    const conf = computeConfluenceCore(c);
+    expect(conf.measurable).toBe(true);
+    expect(["HIGH", "MAXIMUM"]).toContain(conf.level);
+  });
+
+  it("TEST 2 — graded psychology: 64/68/72/76 are progressively stronger, never identical", () => {
+    const bands = [64, 68, 72, 76];
+    const scores = bands.map(
+      (s) => computeConfluenceCore(candidate({ psychologyScore: s })).psychology.raw,
+    );
+    for (let i = 1; i < scores.length; i++) {
+      expect(scores[i]).toBeGreaterThan(scores[i - 1]);
+    }
+    expect(new Set(scores).size).toBe(scores.length);
+  });
+
+  it("TEST 3 — 63% vs 65%: neither auto-rejected, 65% strictly stronger", () => {
+    const below = computeConfluenceCore(candidate({ psychologyScore: 63 }));
+    const above = computeConfluenceCore(candidate({ psychologyScore: 65 }));
+    expect(below.psychology.measurable).toBe(true);
+    expect(above.psychology.measurable).toBe(true);
+    expect(above.psychology.raw).toBeGreaterThan(below.psychology.raw);
+    expect(below.psychology.raw).toBeLessThan(CONFLUENCE_PSYCHOLOGY_THRESHOLD / 3.2); // stays in the low band
+  });
+
+  it("TEST 4 — winning digits increasing beats winning digits flat/weakening, all else equal", () => {
+    const flatLose = pressureReading();
+    const increasing = computeConfluenceCore(
+      candidate({ winPressure: pressureReading({ ratePp: 2.5, persistence: 0.9, monotonicUp: true }), losePressure: flatLose }),
+    );
+    const flat = computeConfluenceCore(
+      candidate({ winPressure: pressureReading({ ratePp: -0.5, persistence: 0.2 }), losePressure: flatLose }),
+    );
+    expect(increasing.pressure.raw).toBeGreaterThan(flat.pressure.raw);
+  });
+
+  it("TEST 5 — losing digits decreasing beats losing digits increasing, all else equal", () => {
+    const flatWin = pressureReading();
+    const decreasing = computeConfluenceCore(
+      candidate({ winPressure: flatWin, losePressure: pressureReading({ ratePp: -2.5, persistence: 0.9, monotonicDown: true }) }),
+    );
+    const increasing = computeConfluenceCore(
+      candidate({ winPressure: flatWin, losePressure: pressureReading({ ratePp: 2.5, persistence: 0.9 }) }),
+    );
+    expect(decreasing.pressure.raw).toBeGreaterThan(increasing.pressure.raw);
+  });
+
+  it("TEST 6 — complete pressure alignment > partial alignment > opposing alignment", () => {
+    const complete = computeConfluenceCore(
+      candidate({
+        winPressure: pressureReading({ ratePp: 2, persistence: 1, monotonicUp: true, agreement: "4/4" }),
+        losePressure: pressureReading({ ratePp: -2, persistence: 1, monotonicDown: true }),
+      }),
+    ).pressure.raw;
+    const partial = computeConfluenceCore(
+      candidate({
+        winPressure: pressureReading({ ratePp: 2, persistence: 0.66, agreement: "3/4" }),
+        losePressure: pressureReading({ ratePp: 0, persistence: 0.3 }),
+      }),
+    ).pressure.raw;
+    const opposing = computeConfluenceCore(
+      candidate({
+        winPressure: pressureReading({ ratePp: 2, persistence: 0.66, agreement: "2/4" }),
+        losePressure: pressureReading({ ratePp: 2, persistence: 0.66 }),
+      }),
+    ).pressure.raw;
+
+    expect(complete).toBeGreaterThan(partial);
+    expect(partial).toBeGreaterThan(opposing);
+  });
+
+  it("TEST 7 — engine agreement: SUPPORT > NEUTRAL > CONFLICT", () => {
+    const support = computeConfluenceCore(candidate({ agreement: "SUPPORT" })).engineAgreement.raw;
+    const neutral = computeConfluenceCore(candidate({ agreement: "NEUTRAL" })).engineAgreement.raw;
+    const conflict = computeConfluenceCore(candidate({ agreement: "CONFLICT" })).engineAgreement.raw;
+    const strongConflict = computeConfluenceCore(candidate({ agreement: "STRONG CONFLICT" })).engineAgreement.raw;
+
+    expect(support).toBeGreaterThan(neutral);
+    expect(neutral).toBeGreaterThan(conflict);
+    expect(conflict).toBeGreaterThan(strongConflict);
+  });
+
+  it("TEST 8 — danger: LOW > MODERATE > HIGH", () => {
+    const low = computeConfluenceCore(candidate({ dangerTotal: 10 })).danger.raw;
+    const moderate = computeConfluenceCore(candidate({ dangerTotal: 40 })).danger.raw;
+    const high = computeConfluenceCore(candidate({ dangerTotal: 75 })).danger.raw;
+
+    expect(low).toBeGreaterThan(moderate);
+    expect(moderate).toBeGreaterThan(high);
+  });
+
+  it("a hard-blocked danger composition earns zero danger-safety credit regardless of the raw total", () => {
+    const blocked = computeConfluenceCore(candidate({ dangerTotal: 10, dangerHardBlocked: true })).danger.raw;
+    expect(blocked).toBe(0);
+  });
+
+  it("TEST 18 — determinism: identical evidence always produces identical scores", () => {
+    const c = candidate({
+      psychologyScore: 71,
+      winPressure: pressureReading({ ratePp: 1.4, persistence: 0.7, monotonicUp: true, agreement: "3/4" }),
+      losePressure: pressureReading({ ratePp: -0.9, persistence: 0.6 }),
+      agreement: "SUPPORT",
+      dangerTotal: 22,
+    });
+    const first = computeConfluenceCore(c);
+    const second = computeConfluenceCore({ ...c });
+    expect(second.score).toBe(first.score);
+    expect(second.level).toBe(first.level);
+  });
+
+  it("is not measurable and never fabricates evidence when the candidate carries none", () => {
+    const conf = computeConfluenceCore({});
+    expect(conf.measurable).toBe(false);
+    expect(conf.score).toBe(0);
+    expect(conf.level).toBe("NONE");
+  });
+
+  it("never lets a candidate below the 64% threshold reach the upper half of the psychology sub-score", () => {
+    for (const s of [0, 20, 40, 63.9]) {
+      const conf = computeConfluenceCore(candidate({ psychologyScore: s }));
+      expect(conf.psychology.raw).toBeLessThan(25);
+    }
+  });
+});
