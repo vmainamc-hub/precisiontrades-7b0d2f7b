@@ -7,8 +7,31 @@
 
 import { describe, it, expect } from "vitest";
 import { computeConfluenceCore, CONFLUENCE_PSYCHOLOGY_THRESHOLD } from "./confluence";
+import type { IdentityConformanceLabel } from "../sentinel/observation/cellIdentity";
 
 type AnyCandidate = any;
+
+/** Minimal synthetic IdentityConformance for confluence-layer tests. */
+function identityConformance(label: IdentityConformanceLabel, hardBlocked = false): AnyCandidate {
+  return {
+    proposition: { id: "over2", label: "Over 2" },
+    greenPass: label === "FULL" || label === "STRONG",
+    secondGreenPass: label === "FULL",
+    redPass: label !== "FAILED",
+    secondRedPass: label === "FULL",
+    mostIncreasingSupportsIdentity: label !== "FAILED",
+    mostDecreasingSupportsIdentity: label !== "FAILED",
+    edgeGroupPass: label !== "FAILED",
+    paceGroupPass: label !== "FAILED",
+    greenDecayPass: label !== "FAILED",
+    extremeDigitDecayPass: null,
+    stabilityWatch: label === "FAILED" ? "RAPIDLY_INCREASING" : "STABLE",
+    edgeGroupAvgPct: 11.25,
+    hardBlocked,
+    label,
+    explanation: [`identity conformance ${label}`],
+  };
+}
 
 function pressureReading(overrides: Partial<AnyCandidate> = {}): AnyCandidate {
   return {
@@ -32,7 +55,12 @@ function candidate(opts: {
   agreement?: string;
   dangerTotal?: number | null;
   dangerHardBlocked?: boolean;
+  identityLabel?: IdentityConformanceLabel | null;
+  identityHardBlocked?: boolean;
 }): AnyCandidate {
+  const needsDossier =
+    opts.winPressure !== undefined || opts.losePressure !== undefined || opts.identityLabel !== undefined;
+
   return {
     agreement: opts.agreement,
     digitPsychology:
@@ -43,33 +71,66 @@ function candidate(opts: {
       opts.dangerTotal == null
         ? undefined
         : { total: opts.dangerTotal, level: "LOW", isHardBlocked: Boolean(opts.dangerHardBlocked) },
-    dossier:
-      opts.winPressure === undefined && opts.losePressure === undefined
-        ? undefined
-        : {
-            pressure: {
-              raw: {
-                winPressure: opts.winPressure ?? null,
-                losePressure: opts.losePressure ?? null,
-              },
+    dossier: !needsDossier
+      ? undefined
+      : {
+          cellId: opts.identityLabel !== undefined ? "over2" : undefined,
+          pressure: {
+            raw: {
+              winPressure: opts.winPressure ?? null,
+              losePressure: opts.losePressure ?? null,
             },
           },
+          identityConformance:
+            opts.identityLabel == null
+              ? null
+              : identityConformance(opts.identityLabel, opts.identityHardBlocked),
+        },
   };
 }
 
 describe("computeConfluenceCore", () => {
-  it("TEST 1 — maximum confluence: strong psychology + full pressure alignment + engine SUPPORT + low danger", () => {
+  it("TEST 1 — maximum confluence: FULL identity + strong psychology + full pressure alignment + engine SUPPORT + low danger", () => {
     const c = candidate({
       psychologyScore: 80,
       winPressure: pressureReading({ ratePp: 3, persistence: 1, monotonicUp: true, agreement: "4/4", direction: "STRONGLY_INCREASING", movement: "TAKING OVER" }),
       losePressure: pressureReading({ ratePp: -3, persistence: 1, monotonicDown: true, direction: "STRONGLY_DECREASING", movement: "LOSING GROUND" }),
       agreement: "SUPPORT",
       dangerTotal: 8,
+      identityLabel: "FULL",
     });
 
     const conf = computeConfluenceCore(c);
     expect(conf.measurable).toBe(true);
     expect(["HIGH", "MAXIMUM"]).toContain(conf.level);
+  });
+
+  it("TEST 0 — identity materially participates: FULL identity beats WEAK identity, all else equal", () => {
+    const base = {
+      psychologyScore: 70,
+      agreement: "NEUTRAL" as const,
+      dangerTotal: 20,
+    };
+    const full = candidate({ ...base, identityLabel: "FULL" });
+    const weak = candidate({ ...base, identityLabel: "WEAK" });
+
+    const confFull = computeConfluenceCore(full);
+    const confWeak = computeConfluenceCore(weak);
+    expect(confFull.identity.measurable).toBe(true);
+    expect(confFull.score).toBeGreaterThan(confWeak.score);
+  });
+
+  it("TEST 0b — a hard-blocked identity earns zero identity credit regardless of its label", () => {
+    const blocked = candidate({ psychologyScore: 70, identityLabel: "FULL", identityHardBlocked: true });
+    const conf = computeConfluenceCore(blocked);
+    expect(conf.identity.raw).toBe(0);
+  });
+
+  it("TEST 0c — no identity evidence is not measurable and never fabricates a score", () => {
+    const c = candidate({ psychologyScore: 70 });
+    const conf = computeConfluenceCore(c);
+    expect(conf.identity.measurable).toBe(false);
+    expect(conf.identity.raw).toBe(0);
   });
 
   it("TEST 2 — graded psychology: 64/68/72/76 are progressively stronger, never identical", () => {

@@ -3,7 +3,8 @@
 // Encodes one empirically observed high-quality convergence regime as a
 // GRADED ranking enhancement, not a qualification gate:
 //
-//   1,000-tick Digit Psychology >= 64%
+//   Cell identity conformance (permanent identity vs. live evidence)
+//   + 1,000-tick Digit Psychology >= 64%
 //   + 120-tick pressure supports the winning side
 //   + winning digits increasing / losing digits decreasing
 //   + engine agreement supports the same direction
@@ -12,6 +13,13 @@
 // This module computes NOTHING new. Every input is read from the existing,
 // already-computed Sentinel/Apex evidence:
 //
+//   identity         -> the existing per-cell IdentityConformance graded
+//                        result (cellIdentity.ts), read via the identity
+//                        integration contract (identityIntegrationContract.ts).
+//                        Materially participates in the score below — it is
+//                        NOT merely a late tie-breaker (that graded tie-break
+//                        still exists in final-rank.ts tier 5b, for
+//                        candidates this score leaves exactly tied).
 //   psychology       -> candidateDigitPsychology() (final-decision.ts) — the
 //                        ONE canonical 1,000-tick digit-psychology score.
 //   pressure         -> the existing 15/30/60/120 PressureField group
@@ -33,6 +41,8 @@
 // authoritative ordering this feeds into).
 
 import { candidateDigitPsychology } from "../sentinel/final-decision";
+import { getIdentityRankingEvidence } from "../sentinel/observation/identityIntegrationContract";
+import type { IdentityConformanceLabel } from "../sentinel/observation/cellIdentity";
 
 export type ConfluenceLevel = "MAXIMUM" | "HIGH" | "STRONG" | "PARTIAL" | "NEGATIVE" | "NONE";
 
@@ -52,9 +62,10 @@ export interface ConfluenceComponent {
 export interface ConfluenceCore {
   /** True when at least one dimension had real evidence. */
   measurable: boolean;
-  /** 0..100 — how strongly the four empirical dimensions agree. */
+  /** 0..100 — how strongly the five empirical dimensions agree. */
   score: number;
   level: ConfluenceLevel;
+  identity: ConfluenceComponent;
   psychology: ConfluenceComponent;
   pressure: ConfluenceComponent;
   engineAgreement: ConfluenceComponent;
@@ -68,13 +79,78 @@ const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x
 /** Empirical threshold from the observed high-quality pattern. Preserved exactly. */
 export const CONFLUENCE_PSYCHOLOGY_THRESHOLD = 64;
 
-/** Starting conceptual weights (§15 of the empirical-confluence spec). */
+/**
+ * Starting conceptual weights (§15 of the empirical-confluence spec),
+ * extended with an explicit identity weight (identity spec Fix #2/§14).
+ *
+ * The original four weights (0.3 / 0.3 / 0.2 / 0.2) are preserved in their
+ * original 3:3:2:2 proportion to each other — they are scaled down by the
+ * same factor (0.75) to make room for the new identity dimension at 0.25,
+ * rather than being replaced or re-derived. Total is still 1.0.
+ */
 export const CONFLUENCE_WEIGHTS = {
-  psychology: 0.3,
-  pressure: 0.3,
-  engineAgreement: 0.2,
-  danger: 0.2,
+  identity: 0.25,
+  psychology: 0.225,
+  pressure: 0.225,
+  engineAgreement: 0.15,
+  danger: 0.15,
 } as const;
+
+// ── IDENTITY. GRADED CELL-IDENTITY CONFORMANCE ─────────────────────────────
+//
+// Reads the already-computed IdentityConformance for this candidate's cell
+// (cellIdentity.ts, via the identity integration contract) and folds its
+// graded label into the confluence score. No identity math is duplicated
+// here — this only maps the existing FAILED..FULL label onto the same 0..100
+// sub-scale the other dimensions use, so identity materially participates in
+// the strengthened opportunity score rather than acting only as a late
+// tie-breaker.
+const IDENTITY_RAW: Record<IdentityConformanceLabel, number> = {
+  FAILED: 0,
+  WEAK: 15,
+  PARTIAL: 35,
+  DEVELOPING: 55,
+  STRONG: 80,
+  FULL: 100,
+};
+
+function candidateIdentityEvidenceForConfluence(candidate: any) {
+  const dossier = candidate?.dossier ?? candidate?.observationDossier ?? null;
+  if (!dossier || typeof dossier.cellId !== "string") return null;
+  return getIdentityRankingEvidence(dossier);
+}
+
+function identityComponent(candidate: any): ConfluenceComponent {
+  const ev = candidateIdentityEvidenceForConfluence(candidate);
+  const label = ev?.identityConformance?.label ?? null;
+
+  if (!ev || !label) {
+    return {
+      label: "Cell Identity Conformance",
+      measurable: false,
+      raw: 0,
+      weight: CONFLUENCE_WEIGHTS.identity,
+      contribution: 0,
+      detail: "No identity-conformance evidence attached to this candidate.",
+    };
+  }
+
+  // A hard-blocked / structurally FAILED identity earns zero confluence
+  // credit here. The authoritative veto itself is enforced separately, in
+  // final-rank.ts tier 2b — this only removes its scoring contribution.
+  const raw = ev.hardBlocked ? 0 : IDENTITY_RAW[label];
+
+  return {
+    label: "Cell Identity Conformance",
+    measurable: true,
+    raw,
+    weight: CONFLUENCE_WEIGHTS.identity,
+    contribution: raw * CONFLUENCE_WEIGHTS.identity,
+    detail: ev.hardBlocked
+      ? "Identity hard-blocked — no confluence credit."
+      : `Identity conformance: ${label} (${ev.positiveSignals.length} conforming / ${ev.negativeSignals.length} conflicting signal(s)).`,
+  };
+}
 
 // ── A. GRADED 1,000-TICK PSYCHOLOGY ────────────────────────────────────────
 //
@@ -325,22 +401,28 @@ function levelOf(score: number, measurable: boolean): ConfluenceLevel {
  * candidate evidence always produces the same score and level.
  */
 export function computeConfluenceCore(candidate: any): ConfluenceCore {
+  const identity = identityComponent(candidate);
   const psychology = psychologyComponent(candidate);
   const pressure = pressureComponent(candidate);
   const engineAgreement = engineAgreementComponent(candidate);
   const danger = dangerComponent(candidate);
 
-  const measurable = psychology.measurable || pressure.measurable || engineAgreement.measurable || danger.measurable;
+  const measurable =
+    identity.measurable || psychology.measurable || pressure.measurable || engineAgreement.measurable || danger.measurable;
   const score = measurable
     ? clamp(
-        psychology.contribution + pressure.contribution + engineAgreement.contribution + danger.contribution,
+        identity.contribution +
+          psychology.contribution +
+          pressure.contribution +
+          engineAgreement.contribution +
+          danger.contribution,
         0,
         100,
       )
     : 0;
   const level = levelOf(score, measurable);
 
-  const reasons = [psychology, pressure, engineAgreement, danger]
+  const reasons = [identity, psychology, pressure, engineAgreement, danger]
     .filter((c) => c.measurable)
     .map((c) => `${c.label}: ${c.detail}`);
 
@@ -352,6 +434,7 @@ export function computeConfluenceCore(candidate: any): ConfluenceCore {
     measurable,
     score,
     level,
+    identity,
     psychology,
     pressure,
     engineAgreement,

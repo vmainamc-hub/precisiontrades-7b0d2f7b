@@ -16,16 +16,19 @@
 //   3. Number/quality of operator gates passed
 //   4. Stage 4 state (risk/decision evidence, not a winner selector)
 //   5. GRADED EMPIRICAL CONFLUENCE (confluence.ts) — chief ranking authority
-//      among equals. Blends the existing 1,000-tick digit-psychology score
-//      with 120-tick pressure alignment, engine agreement and danger safety,
-//      so a candidate with strong *simultaneous* convergence across all four
-//      empirical dimensions can outrank one with a higher psychology score
-//      alone but weaker corroborating evidence. This is a graded ranking
-//      enhancement, never a qualification gate (see confluence.ts) — it
-//      cannot move a candidate across tiers 1-4 above, only reorder within
-//      an otherwise-equal tier.
-//   5b. Graded CELL IDENTITY conformance strength — separates candidates that
-//      Confluence left tied; never crosses tiers 1-4.
+//      among equals. Blends graded CELL IDENTITY conformance with the
+//      existing 1,000-tick digit-psychology score, 120-tick pressure
+//      alignment, engine agreement and danger safety, so a candidate with
+//      strong *simultaneous* convergence across all five empirical
+//      dimensions can outrank one with a higher psychology score alone but
+//      weaker corroborating evidence. Identity materially participates in
+//      this score (identity spec §14) — it is not merely a late tie-break.
+//      This is a graded ranking enhancement, never a qualification gate (see
+//      confluence.ts) — it cannot move a candidate across tiers 1-4 above,
+//      only reorder within an otherwise-equal tier.
+//   5b. Graded CELL IDENTITY conformance strength — a secondary, finer-grained
+//      tie-break for candidates that Confluence (including its identity
+//      component) still left exactly tied; never crosses tiers 1-4.
 //   6. Raw digit-psychology score — tiebreaker when Confluence scores tie
 //      (preserves psychology as an authority in its own right, not merely a
 //      Confluence input).
@@ -181,10 +184,12 @@ export function buildFinalRank<T extends RankedOpportunity>(
     if (idFailedA !== idFailedB) return idFailedA ? 1 : -1;
 
     // TIER 3 — GRADED EMPIRICAL CONFLUENCE.
-    // This is the strengthened psychology/pressure/engine-agreement/danger
-    // ranking signal. It is deliberately evaluated BEFORE qualification so
-    // an execution-ineligible candidate with the strongest complete
-    // opportunity can still be the authoritative Rank #1.
+    // This is the strengthened identity/psychology/pressure/engine-agreement/
+    // danger ranking signal (identity now materially contributes to
+    // confA.score/confB.score itself — see confluence.ts). It is deliberately
+    // evaluated BEFORE qualification so an execution-ineligible candidate
+    // with the strongest complete opportunity can still be the authoritative
+    // Rank #1.
     const confA = getConfluence(a.candidate);
     const confB = getConfluence(b.candidate);
     if (confA.measurable && confB.measurable && confA.score !== confB.score) {

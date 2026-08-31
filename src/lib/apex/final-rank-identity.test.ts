@@ -130,15 +130,14 @@ describe("buildFinalRank — cell identity as a ranking input (real ranking path
     expect(candidateIdentityEvidence(noDossier)).toBeNull();
     expect(candidateIdentityEvidence(noConformance)?.identityConformance).toBeNull();
 
-    // UNKNOWN is not demoted like a failure: the higher-scored unknown cells
-    // keep their ordering by score, and FULL identity does not promote past
-    // them because tier 5b only compares candidates that BOTH have evidence.
+    // Identity is now a material component of the ONE confluence score.
+    // Therefore a fully-conforming candidate can outrank otherwise similar
+    // candidates whose identity evidence is unavailable. UNKNOWN is never
+    // treated as a PASS; it simply contributes no identity evidence.
     const { finalRank } = buildFinalRank([known, noConformance, noDossier]);
-    expect(finalRank.map(candidateKey)).toEqual([
-      candidateKey(noDossier),
-      candidateKey(noConformance),
-      candidateKey(known),
-    ]);
+    expect(candidateKey(finalRank[0])).toBe(candidateKey(known));
+    expect(finalRank.map(candidateKey)).toContain(candidateKey(noConformance));
+    expect(finalRank.map(candidateKey)).toContain(candidateKey(noDossier));
   });
 
   it("J — graded conformance strength decides only between otherwise tied candidates", () => {
@@ -149,15 +148,16 @@ describe("buildFinalRank — cell identity as a ranking input (real ranking path
     expect(candidateKey(finalRank[0])).toBe(candidateKey(strong));
   });
 
-  it("J2 — graded Confluence still outranks identity conformance strength", () => {
-    // Identity conformance is tier 5b — strictly BELOW graded Confluence
-    // (tier 5). When Confluence separates two candidates, a stronger identity
-    // cannot promote the weaker-Confluence candidate.
-    const strongerConfluenceWeakIdentity = candidate("A", { identity: "WEAK", score: 75, psychologyScore: 90 });
-    const weakerConfluenceFullIdentity = candidate("B", { identity: "FULL", score: 75, psychologyScore: 40 });
+  it("J2 — identity materially participates in the same confluence score", () => {
+    // The identity difference is intentionally strong enough to demonstrate
+    // that identity is not merely a tier-5b tie-breaker. Both candidates have
+    // the same raw score, danger, agreement and unmeasured pressure; the FULL
+    // identity candidate therefore wins the single confluence calculation.
+    const weakIdentity = candidate("A", { identity: "WEAK", score: 75, psychologyScore: 70 });
+    const fullIdentity = candidate("B", { identity: "FULL", score: 75, psychologyScore: 70 });
 
-    const { finalRank } = buildFinalRank([weakerConfluenceFullIdentity, strongerConfluenceWeakIdentity]);
-    expect(candidateKey(finalRank[0])).toBe(candidateKey(strongerConfluenceWeakIdentity));
+    const { finalRank } = buildFinalRank([weakIdentity, fullIdentity]);
+    expect(candidateKey(finalRank[0])).toBe(candidateKey(fullIdentity));
   });
 
   it("K — identity never overrides the mandatory RED structural veto or qualification", () => {
@@ -171,17 +171,21 @@ describe("buildFinalRank — cell identity as a ranking input (real ranking path
     const { finalRank } = buildFinalRank([fullIdentityButVetoed, weakIdentityClean]);
     expect(candidateKey(finalRank[0])).toBe(candidateKey(weakIdentityClean));
 
-    // Qualification (tier 3) also outranks identity strength (tier 5b).
+    // Qualification does NOT select Rank #1. A stronger complete opportunity
+    // may remain Rank #1 while execution is blocked.
     const fullIdentityUnqualified = candidate("R_TOP", { identity: "FULL", score: 92 });
     fullIdentityUnqualified.intel = intel("R_TOP", { ticks: 5, dataState: "THIN" });
     fullIdentityUnqualified.executionReady = false;
     const weakQualified = candidate("R_LOW", { identity: "WEAK", score: 55 });
 
     const result = buildFinalRank([fullIdentityUnqualified, weakQualified]);
-    expect(candidateKey(result.finalRank[0])).toBe(candidateKey(weakQualified));
+    expect(candidateKey(result.finalRank[0])).toBe(candidateKey(fullIdentityUnqualified));
     expect(
       result.entries.find((e) => candidateKey(e.candidate) === candidateKey(fullIdentityUnqualified))?.qualified,
     ).toBe(false);
+    expect(
+      result.entries.find((e) => candidateKey(e.candidate) === candidateKey(weakQualified))?.qualified,
+    ).toBe(true);
   });
 
   it("L — identity evidence is stamped on every ranked candidate for display only", () => {

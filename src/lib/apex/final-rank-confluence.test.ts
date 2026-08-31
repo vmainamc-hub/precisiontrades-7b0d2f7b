@@ -7,8 +7,30 @@
 
 import { describe, it, expect } from "vitest";
 import { buildFinalRank, candidateKey } from "./final-rank";
+import type { IdentityConformanceLabel } from "../sentinel/observation/cellIdentity";
 
 type AnyCandidate = any;
+
+function identityConformance(label: IdentityConformanceLabel): AnyCandidate {
+  return {
+    proposition: { id: "over2", label: "Over 2" },
+    greenPass: label === "FULL" || label === "STRONG",
+    secondGreenPass: label === "FULL",
+    redPass: label !== "FAILED",
+    secondRedPass: label === "FULL",
+    mostIncreasingSupportsIdentity: label !== "FAILED",
+    mostDecreasingSupportsIdentity: label !== "FAILED",
+    edgeGroupPass: label !== "FAILED",
+    paceGroupPass: label !== "FAILED",
+    greenDecayPass: label !== "FAILED",
+    extremeDigitDecayPass: null,
+    stabilityWatch: "STABLE",
+    edgeGroupAvgPct: 11.25,
+    hardBlocked: false,
+    label,
+    explanation: [`identity conformance ${label}`],
+  };
+}
 
 function pressureReading(overrides: Partial<AnyCandidate> = {}): AnyCandidate {
   return {

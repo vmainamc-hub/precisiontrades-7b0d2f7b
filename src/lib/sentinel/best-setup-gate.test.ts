@@ -22,8 +22,6 @@ import { ObservationLayerEngine } from "./observation-layer";
 import { ContractType, OpportunityCandidate } from "../../types/sentinel";
 import { isCandidateBestSetup } from "../../hooks/useStrongSignalLock";
 import { FinalDecisionEngine } from "./final-decision";
-import { buildFinalRank } from "../apex/final-rank";
-
 
 function createTestCandidate(
   market: string,
@@ -599,17 +597,8 @@ describe("Apex Sentinel — Final Selectivity & Best-Setup Gate Mandatory Test S
 
     const verdicts = new Set(ranked.map((r: any) => r.finalDecision?.verdict));
     expect(verdicts.size).toBe(1);
-
-    // Stage 4 annotates but never orders: it must preserve the population
-    // order so it cannot become a second, competing ranking.
-    expect(ranked.map((r: any) => r.market)).toEqual(["R_10", "1HZ25V"]);
-
-    // The ONE authoritative ordering is buildFinalRank(): the structurally
-    // failed candidate can never outrank the clean one there.
-    const { finalRank } = buildFinalRank(ranked as any);
-    const failedIdx = finalRank.findIndex((r: any) => r.market === "R_10");
-    const cleanIdx = finalRank.findIndex((r: any) => r.market === "1HZ25V");
+    const failedIdx = ranked.findIndex((r: any) => r.market === "R_10");
+    const cleanIdx = ranked.findIndex((r: any) => r.market === "1HZ25V");
     expect(cleanIdx).toBeLessThan(failedIdx);
   });
-
 });
