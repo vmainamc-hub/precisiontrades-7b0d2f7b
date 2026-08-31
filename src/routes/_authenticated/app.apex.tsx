@@ -134,9 +134,7 @@ function ApexPage() {
   const bestOf90 = apex.scan?.bestOf90 ?? null;
   // Once a scan exists, the displayed candidate is STRICTLY finalRank[0] of that
   // scan. The live ranked field is only used before the first scan.
-  const best = apex.scan
-    ? (apex.scan.finalRank?.[0] ?? bestOf90?.candidate ?? apex.scan.best ?? null)
-    : (apex.ranked[0] ?? null);
+  const best = selectScanCandidate(apex.scan, apex.ranked);
 
   // AUTOMATIC VISUAL FOCUS — sound → look at screen → see the exact signal.
   const latestAlertId = alerts.latest?.id ?? null;
