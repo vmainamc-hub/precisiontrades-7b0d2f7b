@@ -135,7 +135,7 @@ describe("Scan winner invariant — real scan pipeline", () => {
     // sanity: the ranking engine produces a population
     expect(rankOpportunities(intels, opts).ranked.length).toBeGreaterThan(0);
 
-    const scan = scanNow(intels, opts, false);
+    const scan = scanNow(intels, opts);
     expect(scan.finalRank && scan.finalRank.length).toBeGreaterThan(0);
     const rank1 = scan.finalRank![0];
 
